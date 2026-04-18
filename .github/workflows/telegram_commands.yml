@@ -1,0 +1,33 @@
+name: Telegram Command Handler
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  handle-commands:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 코드 내려받기
+        uses: actions/checkout@v4
+
+      - name: Python 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 라이브러리 설치
+        run: pip install requests
+
+      - name: 명령어 처리
+        env:
+          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GIST_TOKEN:       ${{ secrets.GIST_TOKEN }}
+          GIST_ID:          ${{ secrets.GIST_ID }}
+        run: python telegram_commands.py
