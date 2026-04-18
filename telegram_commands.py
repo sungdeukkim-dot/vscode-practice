@@ -89,6 +89,9 @@ def get_updates(offset=None):
 # 명령어 처리
 # ================================
 def process_command(text):
+    # 봇 이름 제거 (예: /help@intops_fund_bot → /help)
+    if "@" in text:
+        text = text.split("@")[0]
     text = text.strip()
 
     # 키워드 데이터 불러오기
