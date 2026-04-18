@@ -175,7 +175,7 @@ def search_google_news(keyword):
 # ================================
 def check_news():
     print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 뉴스 체크 시작...")
-
+    WATCH_KEYWORDS = load_keywords()
     seen      = load_seen()
     new_count = 0
 
