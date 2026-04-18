@@ -1,0 +1,26 @@
+[
+    {
+        "company": "SemiFive",
+        "growth": 85,
+        "revenue": 120,
+        "verdict": "양호함"
+    },
+    {
+        "company": "CYTUR",
+        "growth": 42,
+        "revenue": 30,
+        "verdict": "주의"
+    },
+    {
+        "company": "Mearitt",
+        "growth": 110,
+        "revenue": 80,
+        "verdict": "탁월함"
+    },
+    {
+        "company": "인탑스",
+        "growth": 75,
+        "revenue": 55,
+        "verdict": "양호함"
+    }
+]
