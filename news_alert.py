@@ -19,23 +19,26 @@ headers = {
 # 모니터링할 키워드 목록
 # 회사명, 제품명, 인물명 등 자유롭게 추가
 # ================================
-WATCH_KEYWORDS = [
-    "인포스테크놀로지",
-    "한국형 테이저건",
-    "테이저건",
-    "세미파이브",
-    "인핸스드바이오",
-    "오픈마일",
-    "셀인셀즈",
-    "버즈빌",
-    "레인포컴퍼니",
-    "큐라미스",
-    "엘베이스",
-    # 아래에 추가할 것
-    # "회사명2",
-    # "핵심제품명",
-    # "대표자명",
-]
+def load_keywords():
+    try:
+        res = requests.get(
+            f"https://api.github.com/gists/{GIST_ID}",
+            headers={
+                "Authorization": f"token {GIST_TOKEN}",
+                "Accept": "application/vnd.github.v3+json",
+            },
+            timeout=10
+        )
+        if res.status_code == 200:
+            files = res.json().get("files", {})
+            if "keywords.json" in files:
+                data = json.loads(files["keywords.json"]["content"])
+                kws  = data.get("keywords", [])
+                print(f"  키워드 {len(kws)}개 로드됨: {kws}")
+                return kws
+    except Exception as e:
+        print(f"  [키워드 로드 오류] {e}")
+    return ["인포스테크놀로지", "한국형 테이저건"]
 
 
 # ================================
