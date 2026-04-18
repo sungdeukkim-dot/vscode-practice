@@ -8,6 +8,10 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+# ✅ push 권한 부여
+permissions:
+  contents: write   # ← 이게 없으면 git push 시 403 에러
+
 jobs:
   run-alert:
     runs-on: ubuntu-latest
