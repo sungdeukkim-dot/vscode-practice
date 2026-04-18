@@ -19,7 +19,7 @@ jobs:
           python-version: '3.12'
 
       - name: 라이브러리 설치
-        run: pip install requests beautifulsoup4 schedule
+        run: pip install requests beautifulsoup4
 
       - name: 공고 체크 실행
         env:

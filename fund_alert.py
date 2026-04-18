@@ -2,8 +2,6 @@ import requests
 from bs4 import BeautifulSoup
 import json
 import os
-import schedule
-import time
 from datetime import datetime
 
 
@@ -209,15 +207,5 @@ if __name__ == "__main__":
     print("   출자 공고 알림 시스템 시작")
     print("=" * 50)
 
-    # 시작하자마자 1회 즉시 실행
+    # GitHub Actions에서는 1회 실행 후 종료
     check_all()
-
-    # 이후 2시간마다 자동 실행
-    schedule.every(2).hours.do(check_all)
-    # 테스트할 때는 아래 줄로 바꿀 것 (1분마다)
-    # schedule.every(1).minutes.do(check_all)
-
-    print("스케줄러 실행 중. 종료하려면 Ctrl+C.\n")
-    while True:
-        schedule.run_pending()
-        time.sleep(30)
