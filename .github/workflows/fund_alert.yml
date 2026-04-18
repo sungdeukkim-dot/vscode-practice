@@ -29,3 +29,21 @@ jobs:
           TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python fund_alert.py
+
+        # ✅ 이 블록 전체를 "Run crawler" 스텝 바로 아래에 붙여넣기
+      - name: Commit seen file
+        run: |
+          # git 사용자 설정 (Actions 봇 계정으로 커밋)
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # seen_announcements.json을 스테이징
+          git add seen_announcements.json
+          
+          # 변경사항이 있을 때만 커밋 (없으면 에러 방지)
+          # --quiet: 차이 없으면 아무것도 출력 안 함
+          # ||  : 앞 명령이 "변경 없음"으로 실패해도 뒤 명령 실행
+          git diff --staged --quiet || git commit -m "chore: update seen announcements [skip ci]"
+          
+          # repo에 push
+          git push
