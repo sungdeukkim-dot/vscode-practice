@@ -2,8 +2,11 @@ name: Fund Alert Scheduler
 
 on:
   schedule:
-    - cron: '0 0,2,4,6,8,10,12,14,16,18,20,22 * * *'  # 2시간마다
-  workflow_dispatch:  # 수동 실행 버튼도 생김
+    - cron: '0 0,2,4,6,8,10,12,14,16,18,20,22 * * *'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   run-alert:
@@ -11,10 +14,10 @@ jobs:
 
     steps:
       - name: 코드 내려받기
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Python 설치
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
