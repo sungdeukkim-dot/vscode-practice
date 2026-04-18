@@ -7,8 +7,8 @@ from datetime import datetime
 # ================================
 # 설정 — 여기만 본인 정보로 바꿀 것
 # ================================
-TELEGRAM_TOKEN   = os.environ.get("8613964576:AAHwzxro25iRAOlDTZRnTd29VPdLn-yznpc ", "")
-TELEGRAM_CHAT_ID = os.environ.get("49924895", "")
+TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 SEEN_FILE        = "seen_announcements.json"
 
 
