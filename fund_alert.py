@@ -1,6 +1,5 @@
 import requests
 from bs4 import BeautifulSoup
-import json
 import os
 from datetime import datetime
 
@@ -12,6 +11,7 @@ headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 KEYWORDS = [
     "출자", "펀드", "블라인드", "GP", "운용사",
     "모태", "벤처", "투자", "공고", "선정",
+    "위탁", "PE", "VC", "사모",
 ]
 
 def send_telegram(message):
@@ -32,6 +32,34 @@ def send_telegram(message):
 def is_relevant(title):
     return any(kw in title for kw in KEYWORDS)
 
+# ================================
+# 크롤러 1. 한국벤처캐피탈협회 출자공고
+# (군인공제회, 노란우산 등 대부분 LP 공고 통합)
+# ================================
+def crawl_kvca():
+    results = []
+    try:
+        url = "https://www.kvca.or.kr/Program/invest/list.html?a_gb=board&a_cd=8&a_item=0&sm=2_2_2"
+        res = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(res.text, "html.parser")
+        rows = soup.select("table tbody tr")
+        for row in rows[:10]:
+            cols = row.select("td")
+            if len(cols) >= 2:
+                title_tag = row.select_one("td a")
+                if title_tag:
+                    title = title_tag.get_text(strip=True)
+                    href  = title_tag.get("href", "")
+                    link  = f"https://www.kvca.or.kr{href}" if href.startswith("/") else href
+                    date  = cols[-1].get_text(strip=True) if cols else ""
+                    results.append({"title": title, "date": date, "link": link})
+    except Exception as e:
+        print(f"  [KVCA 오류] {e}")
+    return results
+
+# ================================
+# 크롤러 2. 한국벤처투자 (모태펀드)
+# ================================
 def crawl_kvic():
     results = []
     try:
@@ -51,6 +79,9 @@ def crawl_kvic():
         print(f"  [한국벤처투자 오류] {e}")
     return results
 
+# ================================
+# 크롤러 3. 한국성장금융
+# ================================
 def crawl_kgrowth():
     results = []
     try:
@@ -70,6 +101,53 @@ def crawl_kgrowth():
         print(f"  [한국성장금융 오류] {e}")
     return results
 
+# ================================
+# 크롤러 4. 노란우산공제회 (중소기업중앙회)
+# ================================
+def crawl_kbiz():
+    results = []
+    try:
+        url = "https://www.kbiz.or.kr/ko/contents/bbs/list.do?mnSeq=211"
+        res = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(res.text, "html.parser")
+        for row in soup.select(".board_list tbody tr")[:5]:
+            title_tag = row.select_one("td.title a")
+            date_tag  = row.select_one("td.date")
+            if title_tag:
+                title = title_tag.get_text(strip=True)
+                date  = date_tag.get_text(strip=True) if date_tag else ""
+                href  = title_tag.get("href", "")
+                link  = f"https://www.kbiz.or.kr{href}" if href.startswith("/") else href
+                results.append({"title": title, "date": date, "link": link})
+    except Exception as e:
+        print(f"  [노란우산공제회 오류] {e}")
+    return results
+
+# ================================
+# 크롤러 5. 군인공제회
+# ================================
+def crawl_korcomnet():
+    results = []
+    try:
+        url = "https://www.korcomnet.or.kr/contents/sub04_1.asp"
+        res = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(res.text, "html.parser")
+        for row in soup.select("table tbody tr")[:5]:
+            title_tag = row.select_one("td a")
+            if title_tag:
+                title = title_tag.get_text(strip=True)
+                href  = title_tag.get("href", "")
+                link  = f"https://www.korcomnet.or.kr{href}" if href.startswith("/") else href
+                cols  = row.select("td")
+                date  = cols[-1].get_text(strip=True) if cols else ""
+                results.append({"title": title, "date": date, "link": link})
+    except Exception as e:
+        print(f"  [군인공제회 오류] {e}")
+    return results
+
+# ================================
+# 크롤러 6. 서울산업진흥원
+# ================================
 def crawl_sba():
     results = []
     try:
@@ -89,6 +167,9 @@ def crawl_sba():
         print(f"  [서울산업진흥원 오류] {e}")
     return results
 
+# ================================
+# 크롤러 7. 과학기술인공제회
+# ================================
 def crawl_ktcu():
     results = []
     try:
@@ -108,14 +189,20 @@ def crawl_ktcu():
         print(f"  [과학기술인공제회 오류] {e}")
     return results
 
+# ================================
+# 전체 체크
+# ================================
 def check_all():
     print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 공고 체크 시작...")
 
     sources = [
-        ("한국벤처투자",    crawl_kvic),
-        ("한국성장금융",    crawl_kgrowth),
-        ("서울산업진흥원",  crawl_sba),
-        ("과학기술인공제회", crawl_ktcu),
+        ("KVCA 출자공고(통합)",  crawl_kvca),
+        ("한국벤처투자",         crawl_kvic),
+        ("한국성장금융",         crawl_kgrowth),
+        ("노란우산공제회",       crawl_kbiz),
+        ("군인공제회",           crawl_korcomnet),
+        ("서울산업진흥원",       crawl_sba),
+        ("과학기술인공제회",     crawl_ktcu),
     ]
 
     found_any = False
