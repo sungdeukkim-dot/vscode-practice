@@ -1,230 +1,252 @@
 import requests
 from bs4 import BeautifulSoup
 import os
+import json
 from datetime import datetime
+import time
 
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+GIST_TOKEN       = os.environ.get("GIST_TOKEN", "")
+GIST_ID          = os.environ.get("GIST_ID", "")
+GIST_FILENAME    = "seen_news.json"
 
-headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+}
 
-KEYWORDS = [
-    "출자", "펀드", "블라인드", "GP", "운용사",
-    "모태", "벤처", "투자", "공고", "선정",
-    "위탁", "PE", "VC", "사모",
-]
+def load_keywords():
+    try:
+        res = requests.get(
+            f"https://api.github.com/gists/{GIST_ID}",
+            headers={
+                "Authorization": f"token {GIST_TOKEN}",
+                "Accept": "application/vnd.github.v3+json",
+            },
+            timeout=10
+        )
+        if res.status_code == 200:
+            files = res.json().get("files", {})
+            if "keywords.json" in files:
+                data = json.loads(files["keywords.json"]["content"])
+                kws  = data.get("keywords", [])
+                print(f"  키워드 {len(kws)}개 로드됨: {kws}")
+                return kws
+    except Exception as e:
+        print(f"  [키워드 로드 오류] {e}")
+    return ["인포스테크놀로지", "한국형 테이저건"]
 
+
+# ================================
+# Gist 읽기 / 쓰기
+# ================================
+def load_seen():
+    """
+    반환값: (seen_dict, load_success)
+    load_success=False 이면 Gist 연결 실패 → 발송 자체를 중단해야 함
+    """
+    try:
+        res = requests.get(
+            f"https://api.github.com/gists/{GIST_ID}",
+            headers={
+                "Authorization": f"token {GIST_TOKEN}",
+                "Accept": "application/vnd.github.v3+json",
+            },
+            timeout=10
+        )
+        if res.status_code == 200:
+            files = res.json().get("files", {})
+            if GIST_FILENAME in files:
+                content = files[GIST_FILENAME]["content"]
+                return json.loads(content), True
+            else:
+                # 파일이 없으면 첫 실행으로 간주 → 빈 dict로 정상 시작
+                print("  [Gist] seen_news.json 없음 → 첫 실행으로 초기화")
+                return {}, True
+        else:
+            print(f"  [Gist 읽기 실패] HTTP {res.status_code}")
+            return {}, False
+    except Exception as e:
+        print(f"  [Gist 읽기 오류] {e}")
+        return {}, False  # ← 실패 시 False 반환
+
+
+def save_seen(seen):
+    # seen의 각 키워드별 링크 목록을 최근 200개로 제한 (무한 증가 방지)
+    for kw in seen:
+        if len(seen[kw]) > 200:
+            seen[kw] = seen[kw][-200:]
+    try:
+        requests.patch(
+            f"https://api.github.com/gists/{GIST_ID}",
+            headers={
+                "Authorization": f"token {GIST_TOKEN}",
+                "Accept": "application/vnd.github.v3+json",
+            },
+            json={
+                "files": {
+                    GIST_FILENAME: {
+                        "content": json.dumps(seen, ensure_ascii=False, indent=2)
+                    }
+                }
+            },
+            timeout=10
+        )
+        print("  [Gist 저장 완료]")
+    except Exception as e:
+        print(f"  [Gist 저장 오류] {e}")
+
+
+# ================================
+# 텔레그램 발송
+# ================================
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try:
         res = requests.post(url, data={
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": message,
+            "chat_id":    TELEGRAM_CHAT_ID,
+            "text":       message,
             "parse_mode": "HTML",
         }, timeout=10)
         if res.status_code == 200:
-            print("  [발송 완료]")
+            print("  [텔레그램 발송 완료]")
         else:
-            print(f"  [발송 실패] {res.text}")
+            print(f"  [발송 실패] {res.status_code}")
     except Exception as e:
         print(f"  [발송 오류] {e}")
 
-def is_relevant(title):
-    return any(kw in title for kw in KEYWORDS)
 
 # ================================
-# 크롤러 1. 한국벤처캐피탈협회 출자공고
-# (군인공제회, 노란우산 등 대부분 LP 공고 통합)
+# 네이버 뉴스 검색
 # ================================
-def crawl_kvca():
+def search_naver_news(keyword):
     results = []
     try:
-        url = "https://www.kvca.or.kr/Program/invest/list.html?a_gb=board&a_cd=8&a_item=0&sm=2_2_2"
-        res = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-        rows = soup.select("table tbody tr")
-        for row in rows[:10]:
-            cols = row.select("td")
-            if len(cols) >= 2:
-                title_tag = row.select_one("td a")
-                if title_tag:
-                    title = title_tag.get_text(strip=True)
-                    href  = title_tag.get("href", "")
-                    link  = f"https://www.kvca.or.kr{href}" if href.startswith("/") else href
-                    date  = cols[-1].get_text(strip=True) if cols else ""
-                    results.append({"title": title, "date": date, "link": link})
-    except Exception as e:
-        print(f"  [KVCA 오류] {e}")
-    return results
+        query = requests.utils.quote(keyword)
+        url   = f"https://search.naver.com/search.naver?where=news&query={query}&sort=1"
+        res   = requests.get(url, headers=headers, timeout=10)
+        soup  = BeautifulSoup(res.text, "html.parser")
 
-# ================================
-# 크롤러 2. 한국벤처투자 (모태펀드)
-# ================================
-def crawl_kvic():
-    results = []
-    try:
-        url = "https://www.kvic.or.kr/site/main/board/list?boardManagementNo=23"
-        res = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-        for row in soup.select(".board-list tbody tr")[:5]:
-            title_tag = row.select_one("td.subject a")
-            date_tag  = row.select_one("td.date")
+        articles = soup.select(".news_area")
+        for article in articles[:5]:
+            title_tag = article.select_one(".news_tit")
+            press_tag = article.select_one(".info_group .press")
+            date_tag  = article.select_one(".info_group span.info")
+
             if title_tag:
                 title = title_tag.get_text(strip=True)
-                date  = date_tag.get_text(strip=True) if date_tag else ""
-                href  = title_tag.get("href", "")
-                link  = f"https://www.kvic.or.kr{href}" if href.startswith("/") else href
-                results.append({"title": title, "date": date, "link": link})
+                link  = title_tag.get("href", "").strip()
+                press = press_tag.get_text(strip=True) if press_tag else "언론사 미상"
+                date  = date_tag.get_text(strip=True)  if date_tag  else ""
+
+                if link:  # link 없는 기사는 스킵
+                    results.append({
+                        "title": title,
+                        "link":  link,
+                        "press": press,
+                        "date":  date,
+                        "source": "네이버뉴스"
+                    })
     except Exception as e:
-        print(f"  [한국벤처투자 오류] {e}")
+        print(f"  [네이버 검색 오류 - {keyword}] {e}")
     return results
 
+
 # ================================
-# 크롤러 3. 한국성장금융
+# 구글 뉴스 검색
 # ================================
-def crawl_kgrowth():
+def search_google_news(keyword):
     results = []
     try:
-        url = "https://www.kgrowth.or.kr/bbs/B0000007/list.do"
-        res = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-        for row in soup.select(".board_list tbody tr")[:5]:
-            title_tag = row.select_one("td.title a")
-            date_tag  = row.select_one("td.date")
-            if title_tag:
-                title = title_tag.get_text(strip=True)
-                date  = date_tag.get_text(strip=True) if date_tag else ""
-                href  = title_tag.get("href", "")
-                link  = f"https://www.kgrowth.or.kr{href}" if href.startswith("/") else href
-                results.append({"title": title, "date": date, "link": link})
+        query = requests.utils.quote(keyword)
+        url   = f"https://news.google.com/rss/search?q={query}&hl=ko&gl=KR&ceid=KR:ko"
+        res   = requests.get(url, headers=headers, timeout=10)
+        soup  = BeautifulSoup(res.content, "xml")
+
+        items = soup.select("item")
+        for item in items[:5]:
+            title    = item.find("title").get_text(strip=True) if item.find("title") else ""
+            pub_date = item.find("pubDate").get_text(strip=True) if item.find("pubDate") else ""
+            source   = item.find("source").get_text(strip=True) if item.find("source") else "구글뉴스"
+
+            # 구글 RSS <link>는 <title> 다음 텍스트 노드로 존재 → next_sibling으로 파싱
+            link_tag = item.find("link")
+            if link_tag:
+                link = (link_tag.next_sibling or "").strip()
+            else:
+                link = ""
+
+            if title and link:
+                results.append({
+                    "title":  title,
+                    "link":   link,
+                    "press":  source,
+                    "date":   pub_date,
+                    "source": "구글뉴스"
+                })
     except Exception as e:
-        print(f"  [한국성장금융 오류] {e}")
+        print(f"  [구글 검색 오류 - {keyword}] {e}")
     return results
 
-# ================================
-# 크롤러 4. 노란우산공제회 (중소기업중앙회)
-# ================================
-def crawl_kbiz():
-    results = []
-    try:
-        url = "https://www.kbiz.or.kr/ko/contents/bbs/list.do?mnSeq=211"
-        res = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-        for row in soup.select(".board_list tbody tr")[:5]:
-            title_tag = row.select_one("td.title a")
-            date_tag  = row.select_one("td.date")
-            if title_tag:
-                title = title_tag.get_text(strip=True)
-                date  = date_tag.get_text(strip=True) if date_tag else ""
-                href  = title_tag.get("href", "")
-                link  = f"https://www.kbiz.or.kr{href}" if href.startswith("/") else href
-                results.append({"title": title, "date": date, "link": link})
-    except Exception as e:
-        print(f"  [노란우산공제회 오류] {e}")
-    return results
 
 # ================================
-# 크롤러 5. 군인공제회
+# 핵심 함수 — 전체 키워드 뉴스 체크
 # ================================
-def crawl_korcomnet():
-    results = []
-    try:
-        url = "https://www.korcomnet.or.kr/contents/sub04_1.asp"
-        res = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-        for row in soup.select("table tbody tr")[:5]:
-            title_tag = row.select_one("td a")
-            if title_tag:
-                title = title_tag.get_text(strip=True)
-                href  = title_tag.get("href", "")
-                link  = f"https://www.korcomnet.or.kr{href}" if href.startswith("/") else href
-                cols  = row.select("td")
-                date  = cols[-1].get_text(strip=True) if cols else ""
-                results.append({"title": title, "date": date, "link": link})
-    except Exception as e:
-        print(f"  [군인공제회 오류] {e}")
-    return results
+def check_news():
+    print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 뉴스 체크 시작...")
+    WATCH_KEYWORDS = load_keywords()
 
-# ================================
-# 크롤러 6. 서울산업진흥원
-# ================================
-def crawl_sba():
-    results = []
-    try:
-        url = "https://www.sba.seoul.kr/kr/SB0603"
-        res = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-        for row in soup.select(".board-list tbody tr")[:5]:
-            title_tag = row.select_one("td.tit a")
-            date_tag  = row.select_one("td.date")
-            if title_tag:
-                title = title_tag.get_text(strip=True)
-                date  = date_tag.get_text(strip=True) if date_tag else ""
-                href  = title_tag.get("href", "")
-                link  = f"https://www.sba.seoul.kr{href}" if href.startswith("/") else href
-                results.append({"title": title, "date": date, "link": link})
-    except Exception as e:
-        print(f"  [서울산업진흥원 오류] {e}")
-    return results
+    # Gist 로드 실패 시 중복 발송 위험 → 즉시 종료
+    seen, load_ok = load_seen()
+    if not load_ok:
+        print("  [오류] Gist 로드 실패 → 중복 발송 방지를 위해 이번 실행 건너뜀")
+        return
 
-# ================================
-# 크롤러 7. 과학기술인공제회
-# ================================
-def crawl_ktcu():
-    results = []
-    try:
-        url = "https://www.ktcu.or.kr/board/notice/list.do"
-        res = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-        for row in soup.select(".board_list tbody tr")[:5]:
-            title_tag = row.select_one("td.title a")
-            date_tag  = row.select_one("td.date")
-            if title_tag:
-                title = title_tag.get_text(strip=True)
-                date  = date_tag.get_text(strip=True) if date_tag else ""
-                href  = title_tag.get("href", "")
-                link  = f"https://www.ktcu.or.kr{href}" if href.startswith("/") else href
-                results.append({"title": title, "date": date, "link": link})
-    except Exception as e:
-        print(f"  [과학기술인공제회 오류] {e}")
-    return results
+    new_count = 0
 
-# ================================
-# 전체 체크
-# ================================
-def check_all():
-    print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 공고 체크 시작...")
+    for keyword in WATCH_KEYWORDS:
+        print(f"\n  [{keyword}] 검색 중...")
 
-    sources = [
-        ("KVCA 출자공고(통합)",  crawl_kvca),
-        ("한국벤처투자",         crawl_kvic),
-        ("한국성장금융",         crawl_kgrowth),
-        ("노란우산공제회",       crawl_kbiz),
-        ("군인공제회",           crawl_korcomnet),
-        ("서울산업진흥원",       crawl_sba),
-        ("과학기술인공제회",     crawl_ktcu),
-    ]
+        if keyword not in seen:
+            seen[keyword] = []
 
-    found_any = False
+        seen_links = set(seen[keyword])  # ← set으로 변환하여 O(1) 조회
 
-    for org_name, crawler in sources:
-        print(f"  {org_name} 체크 중...")
-        for item in crawler():
-            if is_relevant(item["title"]):
-                send_telegram(
-                    f"<b>[출자 공고 알림]</b>\n\n"
-                    f"<b>기관:</b> {org_name}\n"
-                    f"<b>제목:</b> {item['title']}\n"
-                    f"<b>날짜:</b> {item['date']}\n"
-                    f"<b>링크:</b> {item['link']}"
-                )
-                print(f"    → 발송: {item['title'][:40]}...")
-                found_any = True
+        # 네이버 + 구글 동시 검색
+        articles = search_naver_news(keyword) + search_google_news(keyword)
+        time.sleep(1)
 
-    if not found_any:
-        print("  신규 관련 공고 없음.")
-    print("  체크 완료.\n")
+        for article in articles:
+            link = article["link"]
+
+            if not link:
+                continue  # link 없으면 dedup 불가 → 스킵
+
+            # ★ 핵심: title이 아닌 link로 중복 체크
+            if link in seen_links:
+                continue
+
+            # 새 기사 감지
+            seen[keyword].append(link)
+            seen_links.add(link)
+            new_count += 1
+
+            message = (
+                f"<b>[뉴스 알림] {keyword}</b>\n\n"
+                f"<b>제목:</b> {article['title']}\n"
+                f"<b>언론사:</b> {article['press']}\n"
+                f"<b>날짜:</b> {article['date']}\n"
+                f"<b>출처:</b> {article['source']}\n"
+                f"<b>링크:</b> {link}"
+            )
+            send_telegram(message)
+            print(f"    → 발송: {article['title'][:40]}...")
+            time.sleep(0.5)
+
+    save_seen(seen)
+    print(f"\n  체크 완료. 신규 기사 {new_count}건 감지.\n")
+
 
 if __name__ == "__main__":
-    print("출자 공고 알림 시스템 시작")
-    check_all()
+    print("뉴스 알림 시스템 시작")
+    check_news()
